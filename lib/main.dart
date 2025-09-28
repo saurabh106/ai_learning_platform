@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'speech_ai_screen.dart';
 
-void main() {
+Future<void> main() async {
+    await dotenv.load(); // Load environment variables
   runApp(const MyApp());
 }
 

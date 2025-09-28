@@ -1,6 +1,7 @@
 // ignore_for_file: unused_field
 
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
@@ -70,7 +71,7 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
         setState(() {
           _recognizedText = result.recognizedWords;
         });
-        
+
         // Print to console in real-time
         if (result.finalResult) {
           _addToConsole('🗣️ Final: ${result.recognizedWords}');
@@ -94,7 +95,7 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
       _isListening = false;
     });
     _addToConsole('⏹️ Stopped listening');
-    
+
     // Auto-send to AI if we have text
     if (_recognizedText.isNotEmpty) {
       _sendToAI(_recognizedText);
@@ -129,8 +130,13 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
   }
 
   Future<String> _callOpenAIApi(String text) async {
-    // Your OpenAI API call implementation
-    const apiKey = "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";
+    // Load the API key from .env
+    final apiKey = dotenv.env['OPENROUTER_API'];
+
+    if (apiKey == null || apiKey.isEmpty) {
+      throw Exception('OPENROUTER_API key is not set in .env file');
+    }
+
     const baseUrl = "https://openrouter.ai/api/v1";
 
     final response = await http.post(
@@ -144,10 +150,7 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
       body: jsonEncode({
         'model': 'x-ai/grok-4-fast:free',
         'messages': [
-          {
-            'role': 'user',
-            'content': text
-          }
+          {'role': 'user', 'content': text},
         ],
         'stream': false,
       }),
@@ -163,7 +166,9 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
 
   void _addToConsole(String message) {
     setState(() {
-      _consoleOutput.add('${DateTime.now().toString().split(' ')[1]} - $message');
+      _consoleOutput.add(
+        '${DateTime.now().toString().split(' ')[1]} - $message',
+      );
     });
     // Auto-scroll to bottom
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -173,7 +178,7 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
         curve: Curves.easeOut,
       );
     });
-    
+
     // Also print to debug console
     print(message);
   }
@@ -213,15 +218,24 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
                   // Status indicators
                   Row(
                     children: [
-                      _buildStatusIndicator('Mic', _isListening ? Colors.green : Colors.red),
+                      _buildStatusIndicator(
+                        'Mic',
+                        _isListening ? Colors.green : Colors.red,
+                      ),
                       const SizedBox(width: 10),
-                      _buildStatusIndicator('AI', _isLoading ? Colors.orange : Colors.green),
+                      _buildStatusIndicator(
+                        'AI',
+                        _isLoading ? Colors.orange : Colors.green,
+                      ),
                       const SizedBox(width: 10),
-                      _buildStatusIndicator('Speech', _speech.isAvailable ? Colors.green : Colors.red),
+                      _buildStatusIndicator(
+                        'Speech',
+                        _speech.isAvailable ? Colors.green : Colors.red,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
-                  
+
                   // Control buttons
                   Row(
                     children: [
@@ -229,9 +243,13 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
                         child: ElevatedButton.icon(
                           onPressed: _isListening ? null : _startListening,
                           icon: Icon(_isListening ? Icons.mic : Icons.mic_none),
-                          label: Text(_isListening ? 'Listening...' : 'Start Listening'),
+                          label: Text(
+                            _isListening ? 'Listening...' : 'Start Listening',
+                          ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: _isListening ? Colors.green : Colors.blue,
+                            backgroundColor: _isListening
+                                ? Colors.green
+                                : Colors.blue,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
@@ -252,12 +270,14 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
                       ),
                     ],
                   ),
-                  
+
                   const SizedBox(height: 8),
-                  
+
                   // Manual send button
                   ElevatedButton.icon(
-                    onPressed: _recognizedText.isNotEmpty && !_isLoading ? () => _sendToAI(_recognizedText) : null,
+                    onPressed: _recognizedText.isNotEmpty && !_isLoading
+                        ? () => _sendToAI(_recognizedText)
+                        : null,
                     icon: const Icon(Icons.send),
                     label: const Text('Send to AI'),
                     style: ElevatedButton.styleFrom(
@@ -269,7 +289,7 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
                 ],
               ),
             ),
-            
+
             // Current recognized text
             if (_recognizedText.isNotEmpty)
               Container(
@@ -281,7 +301,7 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
                   style: const TextStyle(color: Colors.white, fontSize: 16),
                 ),
               ),
-            
+
             // Console output
             Expanded(
               child: Container(
@@ -292,15 +312,21 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
                   itemBuilder: (context, index) {
                     final message = _consoleOutput[index];
                     Color textColor = Colors.white;
-                    
+
                     // Color code different types of messages
-                    if (message.contains('🎤')) textColor = Colors.green;
-                    else if (message.contains('🤖')) textColor = Colors.cyan;
-                    else if (message.contains('❌')) textColor = Colors.red;
-                    else if (message.contains('🚀')) textColor = Colors.orange;
-                    else if (message.contains('⏹️')) textColor = Colors.yellow;
-                    else if (message.contains('🗣️')) textColor = Colors.lightGreen;
-                    
+                    if (message.contains('🎤'))
+                      textColor = Colors.green;
+                    else if (message.contains('🤖'))
+                      textColor = Colors.cyan;
+                    else if (message.contains('❌'))
+                      textColor = Colors.red;
+                    else if (message.contains('🚀'))
+                      textColor = Colors.orange;
+                    else if (message.contains('⏹️'))
+                      textColor = Colors.yellow;
+                    else if (message.contains('🗣️'))
+                      textColor = Colors.lightGreen;
+
                     return Text(
                       message,
                       style: TextStyle(
@@ -313,7 +339,7 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
                 ),
               ),
             ),
-            
+
             // Loading indicator at bottom
             if (_isLoading)
               Container(
@@ -351,16 +377,10 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
         Container(
           width: 12,
           height: 12,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 4),
-        Text(
-          label,
-          style: const TextStyle(color: Colors.white, fontSize: 12),
-        ),
+        Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
       ],
     );
   }
