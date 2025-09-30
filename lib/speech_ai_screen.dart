@@ -1,9 +1,12 @@
-// ignore_for_file: unused_field
+// ignore_for_file: depend_on_referenced_packages, unused_field
 
+import 'package:ai_learning/services/text_to_speech_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:permission_handler/permission_handler.dart';
+import 'package:vibration/vibration.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
@@ -22,10 +25,14 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
   bool _isLoading = false;
   final List<String> _consoleOutput = [];
   final ScrollController _scrollController = ScrollController();
+  late TextToSpeechService _tts;
+  Timer? _speechDetectionTimer;
+  String _lastRecognizedText = '';
 
   @override
   void initState() {
     super.initState();
+    _tts = TextToSpeechService();
     _initSpeech();
     _addToConsole('App started. Click "Start Listening" to begin.');
   }
@@ -59,12 +66,19 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
       return;
     }
 
+    // Add haptic feedback
+    _vibrate();
+
     setState(() {
       _isListening = true;
       _recognizedText = '';
+      _lastRecognizedText = '';
     });
 
     _addToConsole('🎤 Started listening... Speak now!');
+
+    // Start speech detection timer
+    _startSpeechDetectionTimer();
 
     await _speech.listen(
       onResult: (result) {
@@ -75,10 +89,19 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
         // Print to console in real-time
         if (result.finalResult) {
           _addToConsole('🗣️ Final: ${result.recognizedWords}');
+          // Reset timer when new speech is detected
+          _resetSpeechDetectionTimer();
         } else {
           // Only print interim results occasionally to avoid spam
           if (result.recognizedWords.length % 10 == 0) {
             _addToConsole('🗣️ Interim: ${result.recognizedWords}');
+          }
+          
+          // Check if new speech has been detected
+          if (result.recognizedWords != _lastRecognizedText && 
+              result.recognizedWords.isNotEmpty) {
+            _lastRecognizedText = result.recognizedWords;
+            _resetSpeechDetectionTimer();
           }
         }
       },
@@ -89,7 +112,24 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
     );
   }
 
+  void _startSpeechDetectionTimer() {
+    _speechDetectionTimer = Timer(const Duration(seconds: 3), () {
+      if (_isListening && _recognizedText.isNotEmpty) {
+        _addToConsole('⏰ No new speech detected for 3 seconds, stopping...');
+        _stopListening();
+      }
+    });
+  }
+
+  void _resetSpeechDetectionTimer() {
+    _speechDetectionTimer?.cancel();
+    _startSpeechDetectionTimer();
+  }
+
   void _stopListening() {
+    _speechDetectionTimer?.cancel();
+    _speechDetectionTimer = null;
+    
     _speech.stop();
     setState(() {
       _isListening = false;
@@ -99,6 +139,17 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
     // Auto-send to AI if we have text
     if (_recognizedText.isNotEmpty) {
       _sendToAI(_recognizedText);
+    }
+  }
+
+  Future<void> _vibrate() async {
+    if (await Vibration.hasVibrator() ?? false) {
+      if (await Vibration.hasAmplitudeControl() ?? false) {
+        // Short, gentle vibration for start
+        Vibration.vibrate(duration: 100, amplitude: 50);
+      } else {
+        Vibration.vibrate(duration: 100);
+      }
     }
   }
 
@@ -120,6 +171,7 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
       setState(() {
         _aiResponse = response;
       });
+      await _tts.speakInBatches(response);
     } catch (e) {
       _addToConsole('❌ AI Error: $e');
     } finally {
@@ -166,9 +218,7 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
 
   void _addToConsole(String message) {
     setState(() {
-      _consoleOutput.add(
-        '${DateTime.now().toString().split(' ')[1]} - $message',
-      );
+      _consoleOutput.add('${DateTime.now().toString().split(' ')[1]} - $message');
     });
     // Auto-scroll to bottom
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -197,13 +247,7 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
         title: const Text('Speech AI Console'),
         backgroundColor: Colors.blueGrey[900],
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.clear_all),
-            onPressed: _clearConsole,
-            tooltip: 'Clear Console',
-          ),
-        ],
+        actions: [IconButton(icon: const Icon(Icons.clear_all), onPressed: _clearConsole, tooltip: 'Clear Console')],
       ),
       body: Container(
         color: Colors.black,
@@ -218,20 +262,11 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
                   // Status indicators
                   Row(
                     children: [
-                      _buildStatusIndicator(
-                        'Mic',
-                        _isListening ? Colors.green : Colors.red,
-                      ),
+                      _buildStatusIndicator('Mic', _isListening ? Colors.green : Colors.red),
                       const SizedBox(width: 10),
-                      _buildStatusIndicator(
-                        'AI',
-                        _isLoading ? Colors.orange : Colors.green,
-                      ),
+                      _buildStatusIndicator('AI', _isLoading ? Colors.orange : Colors.green),
                       const SizedBox(width: 10),
-                      _buildStatusIndicator(
-                        'Speech',
-                        _speech.isAvailable ? Colors.green : Colors.red,
-                      ),
+                      _buildStatusIndicator('Speech', _speech.isAvailable ? Colors.green : Colors.red),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -243,13 +278,9 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
                         child: ElevatedButton.icon(
                           onPressed: _isListening ? null : _startListening,
                           icon: Icon(_isListening ? Icons.mic : Icons.mic_none),
-                          label: Text(
-                            _isListening ? 'Listening...' : 'Start Listening',
-                          ),
+                          label: Text(_isListening ? 'Listening...' : 'Start Listening'),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: _isListening
-                                ? Colors.green
-                                : Colors.blue,
+                            backgroundColor: _isListening ? Colors.green : Colors.blue,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
@@ -275,9 +306,7 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
 
                   // Manual send button
                   ElevatedButton.icon(
-                    onPressed: _recognizedText.isNotEmpty && !_isLoading
-                        ? () => _sendToAI(_recognizedText)
-                        : null,
+                    onPressed: _recognizedText.isNotEmpty && !_isLoading ? () => _sendToAI(_recognizedText) : null,
                     icon: const Icon(Icons.send),
                     label: const Text('Send to AI'),
                     style: ElevatedButton.styleFrom(
@@ -326,14 +355,12 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
                       textColor = Colors.yellow;
                     else if (message.contains('🗣️'))
                       textColor = Colors.lightGreen;
+                    else if (message.contains('⏰'))
+                      textColor = Colors.amber;
 
                     return Text(
                       message,
-                      style: TextStyle(
-                        color: textColor,
-                        fontSize: 14,
-                        fontFamily: 'Monospace',
-                      ),
+                      style: TextStyle(color: textColor, fontSize: 14, fontFamily: 'Monospace'),
                     );
                   },
                 ),
@@ -358,10 +385,7 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
                       ),
                     ),
                     SizedBox(width: 12),
-                    Text(
-                      'AI is thinking...',
-                      style: TextStyle(color: Colors.white, fontSize: 16),
-                    ),
+                    Text('AI is thinking...', style: TextStyle(color: Colors.white, fontSize: 16)),
                   ],
                 ),
               ),
@@ -387,8 +411,10 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
 
   @override
   void dispose() {
+    _speechDetectionTimer?.cancel();
     _speech.stop();
     _scrollController.dispose();
+    _tts.dispose();
     super.dispose();
   }
 }
