@@ -130,20 +130,21 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
   }
 
   Future<String> _callOpenAIApi(String text) async {
-  final apiKey = dotenv.env['OPENROUTER_API'];
+    // Load the API key from .env
+    final apiKey = dotenv.env['OPENROUTER_API'];
 
-  if (apiKey == null || apiKey.isEmpty) {
-    throw Exception('OPENROUTER_API key is not set in .env file');
-  }
+    if (apiKey == null || apiKey.isEmpty) {
+      throw Exception('OPENROUTER_API key is not set in .env file');
+    }
 
-  const baseUrl = "https://openrouter.ai/api/v1";
+    const baseUrl = "https://openrouter.ai/api/v1";
 
-  try {
     final response = await http.post(
       Uri.parse('$baseUrl/chat/completions'),
       headers: {
         'Authorization': 'Bearer $apiKey',
         'Content-Type': 'application/json',
+        'HTTP-Referer': 'http://localhost:3000',
         'X-Title': 'Flutter Speech AI App',
       },
       body: jsonEncode({
@@ -159,15 +160,9 @@ class _SpeechAIScreenState extends State<SpeechAIScreen> {
       final data = jsonDecode(response.body);
       return data['choices'][0]['message']['content'];
     } else {
-      print('API Error: ${response.statusCode} - ${response.body}');
-      throw Exception('API call failed');
+      throw Exception('API Error: ${response.statusCode} - ${response.body}');
     }
-  } catch (e) {
-    print('API Exception: $e');
-    rethrow;
   }
-}
-
 
   void _addToConsole(String message) {
     setState(() {
